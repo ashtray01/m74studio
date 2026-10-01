@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="310" viewBox="0 0 1280 310" role="img" aria-labelledby="title desc">
+  <title id="title">M74 Studio</title>
+  <desc id="desc">Анализ логов OpenDiag. Параметры, синхронные графики, CSV и TXT.</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101d2a"/><stop offset="1" stop-color="#0b1018"/></linearGradient>
+    <linearGradient id="wave"><stop stop-color="#f3ae5d"/><stop offset=".55" stop-color="#70b8ff"/><stop offset="1" stop-color="#61d4be"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#38516b" stroke-opacity=".2"/></pattern>
+  </defs>
+  <rect width="1280" height="310" rx="18" fill="url(#bg)"/>
+  <rect x="760" width="520" height="310" fill="url(#grid)"/>
+  <path d="M756 190h42l12-30 16 52 21-111 24 143 15-54h48l10-20 15 43 17-83 21 96 17-36h51l14-26 16 44 20-86 22 68h67" fill="none" stroke="url(#wave)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="44" y="39" width="40" height="40" rx="9" fill="#f3ae5d" fill-opacity=".1" stroke="#f3ae5d"/>
+  <path d="M51 59h7l5-12 6 24 5-12h4" fill="none" stroke="#f3ae5d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="101" y="65" font-family="Segoe UI,Arial,sans-serif" font-size="13" letter-spacing="3" fill="#a0b2c8">РАБОЧЕЕ МЕСТО ДИАГНОСТА</text>
+  <text x="43" y="145" font-family="Segoe UI,Arial,sans-serif" font-size="62" font-weight="700" fill="#f3f6fb">M74 <tspan font-weight="300">STUDIO</tspan></text>
+  <text x="46" y="184" font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#aabbd0">Из лога — в понятную картину работы двигателя.</text>
+  <g font-family="Segoe UI,Arial,sans-serif" font-size="12" letter-spacing="1">
+    <rect x="46" y="232" width="115" height="30" rx="5" fill="#19352f"/><text x="62" y="252" fill="#78dfca">ИТЕЛМА М74CAN</text>
+    <rect x="175" y="232" width="123" height="30" rx="5" fill="#1c2b40"/><text x="191" y="252" fill="#8bc6ff">WINDOWS · GO</text>
+    <rect x="312" y="232" width="147" height="30" rx="5" fill="#372a1d"/><text x="328" y="252" fill="#f3ba78">ГРАФИКИ · CSV · TXT</text>
+  </g>
+  <circle cx="1222" cy="49" r="4" fill="#61d4be"/>
+  <text x="1086" y="53" font-family="Segoe UI,Arial,sans-serif" font-size="10" letter-spacing="2" fill="#87a3b9">LOCAL ANALYSIS</text>
+</svg>

@@ -1,0 +1,30 @@
+# Only the application, repository documentation and CI belong in Git.
+/*
+!/.gitattributes
+!/.github/
+!/.gitignore
+!/README.md
+!/m74studio/
+
+# Local development tools.
+.tools/
+.cache/
+.codex/
+.agents/
+.vscode/
+node_modules/
+
+# Personal recordings, generated reports and build products.
+*.log
+*.csv
+*.exe
+*.dll
+*.syso
+*.zip
+exports/
+test-output/
+dist/
+*.tmp
+.env
+.env.*
+!.env.example
