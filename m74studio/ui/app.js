@@ -21,7 +21,7 @@ function load(d){
  pause();S.data=d;S.map=new Map(d.parameters.map((p,i)=>[p.id,i]));S.charts=[...presets.engine];S.active='p004';S.cursor=0;S.view=[0,Math.max(d.duration,.001)];S.selection=null;S.page=0;S.filter='numbers';$('preset').value='engine';$('searchInput').value='';
  document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===S.filter));
  $('fileName').textContent=d.file;$('fileName').title=d.file;$('fileDetail').textContent=`${d.date||'Дата не указана'}  ·  ${d.frames[0].time} — ${d.frames.at(-1).time}  ·  ${d.frames.length.toLocaleString('ru-RU')} кадров`;
- $('profileTitle').textContent='ИТЕЛМА М74CAN';$('csvBtn').disabled=false;$('txtBtn').disabled=false;$('emptyState').hidden=true;$('timeline').hidden=false;
+ $('csvBtn').disabled=false;$('txtBtn').disabled=false;$('emptyState').hidden=true;$('timeline').hidden=false;
  $('channelCount').textContent=`${d.stats.filter(x=>x.count).length} / ${d.parameters.length}`;$('eventCount').textContent=d.events.length;
  const passport=[['Калибровка',d.meta['Калибровка']||'Не прочитана'],['Автомобиль',d.meta['Автомобиль']||'—'],['Номер ЭБУ',d.meta['Номер ЭБУ']||'—'],['Аппаратная версия',d.meta['Аппаратная версия']||'—'],['Дата производства',d.meta['Дата производства']||'—'],['VIN',d.meta.VIN||'Нет данных']];
  $('passportFields').innerHTML=passport.map(([k,v])=>`<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -29,28 +29,44 @@ function load(d){
  $('qualitySummary').innerHTML=`${fmt(pct,1)}% <small>полных кадров</small>`;
  $('qualityMeter').innerHTML=[[q.complete,'#60d4be'],[q.partial,'#f3a653'],[q.invalid,'#ed7b7e'],[q.recovered,'#b89bf0']].map(([n,c])=>`<i style="width:${n/total*100}%;background:${c}"></i>`).join('');
  $('qualityFields').innerHTML=[['Полные',q.complete],['Неполные',q.partial],['Повреждённые',q.invalid],['Префикс восстановлен',q.recovered],['Интервал (медиана)',fmt(d.medianInterval*1000,0)+' мс']].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join('');
- $('durationLabel').textContent=duration(d.duration);renderChannels();renderCharts();setTab('graphs');renderEvents();updateSelection();updateCursor();status(`Лог открыт · ${total} кадров · ${d.stats.filter(x=>x.count).length} параметра`);
+ $('durationLabel').textContent=duration(d.duration);renderKPIs();renderChannels();renderCharts();setTab('graphs');renderEvents();updateSelection();updateCursor();status(`Лог открыт · ${total} кадров · ${d.stats.filter(x=>x.count).length} параметра`);
 }
+let kpiIDs=kpiDefs.map(d=>d[0]), draggedKpi=null;
+try{const saved=JSON.parse(localStorage.getItem('m74.kpis'));if(Array.isArray(saved)&&saved.every(id=>/^p\d{3}$/.test(id)))kpiIDs=[...new Set(saved)];}catch{}
+function saveKPIs(){try{localStorage.setItem('m74.kpis',JSON.stringify(kpiIDs))}catch{}renderKPIs();if(S.data)updateCursor();}
 function renderKPIs(){
- $('kpis').innerHTML=kpiDefs.map(([id,label,unit,dec],i)=>`<div class="kpi" style="--kpi-color:${COLORS[i]}"><span class="kpi-label">${label}</span><span class="kpi-indicator"></span><div class="kpi-main"><b id="kpi-${id}">—</b><small>${unit}</small></div></div>`).join('');
+ const ids=S.data?kpiIDs.filter(id=>param(id)):kpiIDs;
+ $('kpis').innerHTML=ids.map((id,i)=>{const def=kpiDefs.find(d=>d[0]===id),p=param(id),name=def?.[1]||p?.name||id,unit=p?.unit||def?.[2]||'';
+ return `<div class="kpi" data-kpi="${id}" style="--kpi-color:${COLORS[i%COLORS.length]}"><div class="kpi-top"><span class="kpi-label" title="${esc(name)}">${esc(name)}</span><button class="kpi-handle icon-button" draggable="true" data-drag-kpi="${id}" title="Перетащить; ← / → переместить" aria-label="Переместить ${esc(name)}">⋮⋮</button><button class="icon-button" data-remove-kpi="${id}" title="Убрать показание" aria-label="Убрать ${esc(name)}">−</button></div><div class="kpi-main"><b id="kpi-${id}">—</b><small>${esc(unit)}</small></div></div>`;
+ }).join('')+`<button id="addKpi" class="kpi-add" title="Добавить показание" aria-label="Добавить показание" ${S.data?'':'disabled'}>+</button>`;
 }
+function moveKpi(id,target){const from=kpiIDs.indexOf(id),to=kpiIDs.indexOf(target);if(from<0||to<0||from===to)return;kpiIDs.splice(from,1);kpiIDs.splice(to,0,id);saveKPIs();}
+$('kpis').onclick=e=>{const remove=e.target.closest('[data-remove-kpi]');if(remove){kpiIDs=kpiIDs.filter(id=>id!==remove.dataset.removeKpi);saveKPIs();return;}if(e.target.closest('#addKpi')&&S.data){const options=S.data.parameters.filter(p=>!kpiIDs.includes(p.id));$('kpiParameter').innerHTML=options.map(p=>`<option value="${p.id}">${esc(p.name)}${p.unit?' · '+esc(p.unit):''}</option>`).join('');$('confirmKpi').disabled=!options.length;$('kpiDialog').showModal();}};
+$('closeKpi').onclick=()=>$('kpiDialog').close();
+$('confirmKpi').onclick=()=>{const id=$('kpiParameter').value;if(param(id)&&!kpiIDs.includes(id)){kpiIDs.push(id);saveKPIs();}$('kpiDialog').close();};
+$('kpis').ondragstart=e=>{const handle=e.target.closest('[data-drag-kpi]');if(!handle)return;draggedKpi=handle.dataset.dragKpi;e.dataTransfer.setData('text/plain',draggedKpi);e.dataTransfer.effectAllowed='move';};
+$('kpis').ondragover=e=>{if(!draggedKpi)return;e.preventDefault();e.stopPropagation();e.dataTransfer.dropEffect='move';document.querySelectorAll('[data-kpi]').forEach(c=>c.classList.toggle('drop-target',c===e.target.closest('[data-kpi]')));};
+$('kpis').ondrop=e=>{if(!draggedKpi)return;e.preventDefault();e.stopPropagation();const target=e.target.closest('[data-kpi]');if(target)moveKpi(draggedKpi,target.dataset.kpi);draggedKpi=null;};
+$('kpis').ondragend=()=>{draggedKpi=null;document.querySelectorAll('.drop-target').forEach(c=>c.classList.remove('drop-target'));};
+$('kpis').onkeydown=e=>{const handle=e.target.closest('[data-drag-kpi]');if(!handle||!['ArrowLeft','ArrowRight'].includes(e.key))return;e.preventDefault();e.stopPropagation();const id=handle.dataset.dragKpi,index=kpiIDs.indexOf(id),target=kpiIDs[index+(e.key==='ArrowLeft'?-1:1)];if(target){moveKpi(id,target);document.querySelector('[data-drag-kpi="'+id+'"]').focus();}};
 function renderChannels(){
  if(!S.data)return;let needle=$('searchInput').value.toLocaleLowerCase('ru').trim(),html='',group='';
  const rows=S.data.parameters.map((p,j)=>({p,j})).filter(({p})=>(S.filter==='all'||(S.filter==='flags')===(p.kind==='flag'))&&(!needle||(p.name+' '+p.description+' '+p.id).toLocaleLowerCase('ru').includes(needle))).sort((a,b)=>a.p.group.localeCompare(b.p.group,'ru')||a.j-b.j);
  for(const {p,j} of rows){let selected=S.charts.includes(p.id),available=S.data.stats[j].count>0;if(group!==p.group){group=p.group;html+=`<div class="channel-group">${esc(group)}</div>`;}
   html+=`<div class="channel-row ${selected?'selected ':''}${p.id===S.active?'active ':''}${!available?'unavailable':''}" data-id="${p.id}" style="--signal:${color(p.id)}" title="${esc(p.description)}${p.unit?' · '+esc(p.unit):''}${available?'':' · Нет данных в записи'}" tabindex="${available?0:-1}" role="checkbox" aria-checked="${selected}" aria-label="${esc(p.name)}"><span class="channel-check"></span><span class="channel-name">${esc(p.name)}</span><span class="channel-value" data-value="${p.id}">${valueText(p,val(p.id))}</span></div>`;
  }
- $('channelList').innerHTML=html||'<div class="aside-empty">Ничего не найдено</div>';$('plottedCount').textContent=`${S.charts.length} / 6 графиков`;
+ $('channelList').innerHTML=html||'<div class="aside-empty">Ничего не найдено</div>';$('plottedCount').textContent=`Графиков: ${S.charts.length}`;
 }
 function toggleChannel(id){
  if(!S.data||!S.data.stats[S.map.get(id)]?.count)return;
  if(param(id).kind==='hex'){setActive(id);toast('Контрольная сумма доступна в статистике и полном экспорте');return;}
  const i=S.charts.indexOf(id);if(i>=0){S.charts.splice(i,1);if(S.active===id)S.active=S.charts[0]||id;}
- else{if(S.charts.length>=6){S.active=id;updateStats();toast('Доступно до 6 графиков. Снимите один сигнал или замените его в заголовке графика.');return;}S.charts.push(id);S.active=id;}
+ else{S.charts.push(id);S.active=id;}
  $('preset').value='custom';S.page=0;renderChannels();renderCharts();updateStats();if(S.tab==='table')renderTable();
 }
 function renderCharts(){
  if(!S.data)return;const options=S.data.parameters.filter((p,i)=>S.data.stats[i].count>0&&p.kind!=='hex');
+ document.querySelectorAll('.chart-canvas').forEach(c=>observeCanvas.unobserve(c));
  $('graphs').innerHTML=S.charts.length?S.charts.map(id=>{let p=param(id);return `<article class="chart-card ${id===S.active?'active':''}" data-id="${id}" style="--signal:${color(id)}"><div class="chart-heading"><i class="signal-dot"></i><select data-chart-select="${id}" aria-label="Сигнал графика">${options.map(p2=>`<option value="${p2.id}" ${p2.id===id?'selected':''}>${esc(p2.name)}</option>`).join('')}</select><span class="chart-unit">${esc(p.unit)}</span><span class="chart-current" data-current="${id}">${valueText(p,val(id))}</span><button class="icon-button" data-remove="${id}" title="Убрать график">×</button></div><canvas class="chart-canvas" data-signal="${id}" aria-label="${esc(p.name)}"></canvas></article>`;}).join(''):'<div class="aside-empty">Выберите сигналы слева или готовый набор над графиками</div>';
  document.querySelectorAll('.chart-canvas').forEach(c=>{observeCanvas.observe(c);attachCanvas(c,false)});scheduleDraw();
 }
@@ -59,10 +75,10 @@ function nearest(t){let i=lowerBound(t);if(i<=0)return 0;if(i>=S.data.frames.len
 function bounds(a,b){let start=lowerBound(a),end=lowerBound(b);if(end>=S.data.frames.length||S.data.frames[end].t>b)end--;return [Math.min(start,S.data.frames.length-1),Math.max(-1,end)];}
 function updateCursor(){
  if(!S.data)return;let f=S.data.frames[S.cursor];
- for(const [id,label,unit,dec] of kpiDefs)$('kpi-'+id).textContent=fmt(val(id),dec);
+ for(const id of kpiIDs){const el=$('kpi-'+id),p=param(id);if(el&&p)el.textContent=valueText(p,val(id));}
  document.querySelectorAll('[data-value]').forEach(el=>{let id=el.dataset.value;el.textContent=valueText(param(id),val(id))});
  document.querySelectorAll('[data-current]').forEach(el=>{let id=el.dataset.current;el.textContent=valueText(param(id),val(id))});
- $('cursorTime').textContent=f.time;$('frameIndex').textContent=`${S.cursor+1} / ${S.data.frames.length}`;$('frameStatus').textContent=qualityNames[f.quality];$('frameStatus').classList.toggle('warning',f.quality!=='complete');$('rawFrame').textContent=f.raw||'Ответ отсутствует';
+ $('cursorTime').textContent=f.time;$('frameIndex').textContent=`${S.cursor+1} / ${S.data.frames.length}`;$('frameStatus').textContent=qualityNames[f.quality]+(f.request?' · '+f.request:'');$('frameStatus').classList.toggle('warning',f.quality!=='complete');$('rawFrame').textContent=f.raw||'Ответ отсутствует';
  $('statusRange').textContent=`Кадр ${S.cursor+1} · ${f.time} · строка ${f.line}`;
  if(S.tab==='table')document.querySelectorAll('tr[data-frame]').forEach(row=>row.classList.toggle('current',+row.dataset.frame===S.cursor));scheduleDraw();
 }
@@ -113,7 +129,7 @@ function drawChart(c,id,overview){
   let start=lo;while(start<=hi){let f=frames[start];if(f.values[j]==null){point(start++);continue;}let pixel=Math.floor(x(f.t)),end=start,minI=start,maxI=start;while(end+1<=hi&&Math.floor(x(frames[end+1].t))===pixel&&frames[end+1].values[j]!=null&&frames[end+1].t-frames[end].t<=gap){end++;if(frames[end].values[j]<frames[minI].values[j])minI=end;if(frames[end].values[j]>frames[maxI].values[j])maxI=end;}[...new Set([start,minI,maxI,end])].sort((u,v)=>u-v).forEach(point);start=end+1;}
  }
  ctx.stroke();
- if(S.drag?.canvas===c&&S.drag.moved){let sx=x(S.drag.startT),ex=x(S.drag.endT);ctx.fillStyle='#f3a65325';ctx.fillRect(Math.min(sx,ex),top,Math.max(1,Math.abs(ex-sx)),ph);}
+ if(S.drag?.canvas===c&&S.drag.moved&&S.drag.mode!=='pan'){let sx=x(S.drag.startT),ex=x(S.drag.endT);ctx.fillStyle='#f3a65325';ctx.fillRect(Math.min(sx,ex),top,Math.max(1,Math.abs(ex-sx)),ph);}
  let cursor=frames[S.cursor],cx=x(cursor.t),v=cursor.values[j];
  if(cursor.t>=a&&cursor.t<=b){ctx.strokeStyle=overview?'#f3a653':'#a4b8d096';ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(cx,top);ctx.lineTo(cx,h-bottom);ctx.stroke();ctx.setLineDash([]);if(!overview&&v!=null){ctx.fillStyle=stroke;ctx.beginPath();ctx.arc(cx,y(v),3,0,Math.PI*2);ctx.fill();}}
  ctx.restore();
@@ -122,13 +138,20 @@ function drawChart(c,id,overview){
 }
 function canvasTime(c,clientX,overview){let r=c.getBoundingClientRect(),l=overview?8:56,rr=overview?8:18,ratio=Math.max(0,Math.min(1,(clientX-r.left-l)/(r.width-l-rr))),[a,b]=overview?[0,Math.max(.001,S.data.duration)]:S.view;return a+ratio*(b-a);}
 function attachCanvas(c,overview){
- c.addEventListener('pointerdown',e=>{if(!S.data||e.button!==0)return;pause();let t=canvasTime(c,e.clientX,overview);if(!overview)setActive(c.dataset.signal);S.drag={canvas:c,startX:e.clientX,startT:t,endT:t,moved:false};c.setPointerCapture(e.pointerId);setCursor(nearest(t));});
- c.addEventListener('pointermove',e=>{if(!S.data)return;let t=canvasTime(c,e.clientX,overview);if(S.drag?.canvas===c){S.drag.endT=t;if(Math.abs(e.clientX-S.drag.startX)>4)S.drag.moved=true;scheduleDraw();}else if(!S.playing){setCursor(nearest(t));}});
- c.addEventListener('pointerup',e=>{let d=S.drag;if(!d||d.canvas!==c)return;if(d.moved){let i=nearest(Math.min(d.startT,d.endT)),j=nearest(Math.max(d.startT,d.endT));S.selection=[i,j];if(e.shiftKey)setView(S.data.frames[i].t,S.data.frames[j].t);updateSelection();}else setCursor(nearest(d.endT));S.drag=null;scheduleDraw();});
- c.addEventListener('pointercancel',()=>{S.drag=null;scheduleDraw()});
- c.addEventListener('dblclick',()=>{S.drag=null;fit()});
- c.addEventListener('wheel',e=>{if(!S.data)return;e.preventDefault();if(e.shiftKey){let span=S.view[1]-S.view[0],delta=e.deltaY*.001*span;setView(S.view[0]+delta,S.view[1]+delta);}else zoom(e.deltaY>0?1.2:1/1.2,canvasTime(c,e.clientX,overview));},{passive:false});
+ // The overview is navigation only; range selection belongs to the main charts.
+ const canPan=()=>overview;
+ const resetDrag=()=>{if(S.drag?.canvas===c)S.drag=null;c.style.cursor=overview?'grab':'crosshair';scheduleDraw();};
+ c.addEventListener('pointerdown',e=>{if(!S.data||e.button!==0)return;pause();let t=canvasTime(c,e.clientX,overview),mode=overview?'pan':'select';if(overview&&(t<S.view[0]||t>S.view[1])){const span=S.view[1]-S.view[0];setView(t-span/2,t+span/2);}if(!overview)setActive(c.dataset.signal);S.drag={canvas:c,startX:e.clientX,startT:t,endT:t,moved:false,mode,view:[...S.view]};c.setPointerCapture(e.pointerId);if(mode==='pan')c.style.cursor='grabbing';else setCursor(nearest(t));});
+ c.addEventListener('pointermove',e=>{if(!S.data)return;let t=canvasTime(c,e.clientX,overview),d=S.drag;if(d?.canvas===c){d.endT=t;if(Math.abs(e.clientX-d.startX)>4)d.moved=true;if(d.mode==='pan'&&d.moved){const delta=t-d.startT;setView(d.view[0]+delta,d.view[1]+delta);}else scheduleDraw();}else{c.style.cursor=canPan(t)?'grab':'crosshair';if(!S.playing)setCursor(nearest(t));}});
+ c.addEventListener('pointerup',e=>{let d=S.drag;if(!d||d.canvas!==c)return;if(d.mode==='pan'){if(!d.moved)setCursor(nearest(d.endT));}else if(d.moved){let i=nearest(Math.min(d.startT,d.endT)),j=nearest(Math.max(d.startT,d.endT));S.selection=[i,j];updateSelection();}else setCursor(nearest(d.endT));resetDrag();if(c.hasPointerCapture(e.pointerId))c.releasePointerCapture(e.pointerId);});
+ c.addEventListener('pointercancel',resetDrag);
+ c.addEventListener('lostpointercapture',resetDrag);
+ if(overview)c.addEventListener('dblclick',()=>{S.drag=null;fit()});
+
 }
+function panWheel(e){const span=S.view[1]-S.view[0],delta=(e.deltaY||e.deltaX)*.001*span;setView(S.view[0]+delta,S.view[1]+delta);}
+$('graphs').addEventListener('wheel',e=>{if(!S.data||!e.shiftKey)return;e.preventDefault();panWheel(e);},{passive:false});
+$('timeline').addEventListener('wheel',e=>{if(!S.data)return;e.preventDefault();if(e.shiftKey)panWheel(e);else{const delta=e.deltaY||e.deltaX;if(delta)zoom(delta>0?1.2:1/1.2,e.target===$('overview')?canvasTime($('overview'),e.clientX,true):undefined);}},{passive:false});
 function setTab(tab){
  S.tab=tab;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===tab));$('graphs').hidden=!S.data||tab!=='graphs';$('tableView').hidden=!S.data||tab!=='table';$('eventsView').hidden=!S.data||tab!=='events';
  if(tab==='table')renderTable();if(tab==='events')renderEvents();scheduleDraw();

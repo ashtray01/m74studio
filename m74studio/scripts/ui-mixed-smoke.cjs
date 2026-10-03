@@ -1,0 +1,87 @@
+const {chromium}=require('playwright-core');
+const fs=require('fs'),assert=require('assert');
+(async()=>{
+const browser=await chromium.launch({channel:'chrome',headless:true});
+const page=await browser.newPage({viewport:{width:1540,height:940}}),errors=[];
+page.on('pageerror',e=>errors.push(e.message));
+const session=JSON.parse(fs.readFileSync('test-output/session-mixed.json','utf8'));
+await page.exposeFunction('initialLog',()=>null);await page.exposeFunction('openLog',()=>session);
+const exported=[];await page.exposeFunction('saveExport',o=>{exported.push(o);return 'test.csv'});
+const html=fs.readFileSync('ui/index.html','utf8').replace('/*STYLE*/',()=>fs.readFileSync('ui/style.css','utf8')).replace('/*SCRIPT*/',()=>fs.readFileSync('ui/app.js','utf8'));
+await page.setContent(html);await page.waitForFunction(()=>document.getElementById('busy').hidden);
+await page.locator('#openBtn').click();await page.waitForFunction(()=>document.querySelectorAll('.chart-canvas').length===4);
+assert((await page.locator('#fileDetail').innerText()).includes('18:23:17.811'));
+assert.equal(await page.locator('.app-header #openBtn').count(),1);assert.equal(await page.locator('.toolbar').count(),0);
+assert.equal(await page.locator('.kpi').count(),6);
+for(let i=0;i<8;i++)await page.locator('#addChart').click();
+assert.equal(await page.locator('.chart-canvas').count(),12);
+assert.equal(await page.locator('#plottedCount').innerText(),'Графиков: 12');
+assert(await page.locator('#graphs').evaluate(el=>el.scrollHeight>el.clientHeight));
+// Plain wheel scrolls the graph list; it cannot change the time scale.
+const initialView=await page.evaluate(()=>[...S.view]);
+const firstCanvasBox=await page.locator('.chart-canvas').first().boundingBox();
+await page.mouse.move(firstCanvasBox.x+firstCanvasBox.width/2,firstCanvasBox.y+firstCanvasBox.height/2);await page.mouse.wheel(0,300);
+await page.waitForFunction(()=>document.getElementById('graphs').scrollTop>0);
+assert.deepEqual(await page.evaluate(()=>[...S.view]),initialView);
+assert.equal(await page.locator('#timeline #zoomIn').count(),1);assert.equal(await page.locator('.view-toolbar #zoomIn').count(),0);
+// Wheel over the playback panel zooms; Shift-wheel still pans without vertical scrolling.
+const overviewBox=await page.locator('#overview').boundingBox();await page.mouse.move(overviewBox.x+overviewBox.width/2,overviewBox.y+12);await page.mouse.wheel(0,-120);
+await page.waitForFunction(()=>S.view[1]-S.view[0]<S.data.duration);
+const zoomed=await page.evaluate(()=>[...S.view]);
+const visibleHeader=page.locator('.chart-heading').nth(5);await visibleHeader.scrollIntoViewIfNeeded();const hb=await visibleHeader.boundingBox();await page.mouse.move(hb.x+hb.width-70,hb.y+hb.height/2);
+const scrollBefore=await page.locator('#graphs').evaluate(el=>el.scrollTop);
+await page.keyboard.down('Shift');await page.mouse.wheel(0,100);await page.keyboard.up('Shift');await page.waitForTimeout(100);
+const shifted=await page.evaluate(()=>[...S.view]);assert(shifted[0]>zoomed[0]);assert(Math.abs((shifted[1]-shifted[0])-(zoomed[1]-zoomed[0]))<.001);assert.equal(await page.locator('#graphs').evaluate(el=>el.scrollTop),scrollBefore);
+await page.locator('#fitBtn').click();
+await page.locator('.chart-card').last().scrollIntoViewIfNeeded();
+await page.locator('.chart-card [data-remove]').last().click();
+assert.equal(await page.locator('.chart-canvas').count(),11);
+await page.locator('#clearCharts').click();
+assert.equal(await page.locator('.chart-canvas').count(),4);
+await page.locator('[data-remove-kpi="p004"]').click();assert.equal(await page.locator('.kpi').count(),5);
+await page.locator('#addKpi').click();await page.locator('#kpiParameter').selectOption('p004');await page.locator('#confirmKpi').click();
+assert.equal(await page.locator('.kpi').last().getAttribute('data-kpi'),'p004');
+await page.locator('[data-drag-kpi="p004"]').dragTo(page.locator('[data-kpi="p003"]'));
+assert.equal(await page.locator('.kpi').first().getAttribute('data-kpi'),'p004');
+assert(await page.locator('#dropOverlay').isHidden());
+await page.locator('[data-drag-kpi="p004"]').focus();await page.keyboard.press('ArrowRight');
+assert.equal(await page.locator('.kpi').nth(1).getAttribute('data-kpi'),'p004');
+await page.locator('#zoomIn').click();const before=await page.evaluate(()=>[...S.view]);
+const box=await page.locator('.chart-canvas').first().boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);
+await page.keyboard.down('Shift');await page.mouse.wheel(0,120);await page.keyboard.up('Shift');
+await page.waitForTimeout(100);const after=await page.evaluate(()=>[...S.view]);assert(after[0]>before[0]);assert(Math.abs((after[1]-after[0])-(before[1]-before[0]))<.001);
+// The overview window pans without changing zoom or the selected export interval.
+await page.evaluate(()=>{setView(S.data.duration*.2,S.data.duration*.4);S.selection=[10,20];updateSelection()});
+const overview=page.locator('#overview'),ob=await overview.boundingBox();
+const panBefore=await page.evaluate(()=>({view:[...S.view],selection:[...S.selection]}));
+const px=ratio=>ob.x+8+(ob.width-16)*ratio,py=ob.y+12;
+await page.mouse.move(px(.3),py);assert.equal(await overview.evaluate(el=>el.style.cursor),'grab');
+await page.mouse.down();await page.mouse.move(px(.5),py,{steps:8});await page.mouse.up();
+const panAfter=await page.evaluate(()=>({view:[...S.view],selection:[...S.selection],drag:S.drag,total:S.data.duration}));
+assert(panAfter.view[0]>panBefore.view[0]);assert(Math.abs((panAfter.view[1]-panAfter.view[0])-(panBefore.view[1]-panBefore.view[0]))<.001);assert.deepEqual(panAfter.selection,panBefore.selection);assert.equal(panAfter.drag,null);
+await page.mouse.move(px(.5),py);await page.mouse.down();await page.mouse.move(px(1.2),py,{steps:8});await page.mouse.up();
+assert(Math.abs((await page.evaluate(()=>S.view[1]))-panAfter.total)<.001);
+await page.mouse.move(px(.9),py);await page.mouse.down();await page.mouse.move(px(-.2),py,{steps:8});await page.mouse.up();assert.equal(await page.evaluate(()=>S.view[0]),0);
+await page.mouse.move(px(.1),py);await page.mouse.down();await overview.dispatchEvent('pointercancel');await page.mouse.up();assert.equal(await page.evaluate(()=>S.drag),null);
+// Dragging outside the viewport must also navigate, never create a selection.
+await page.evaluate(()=>{setView(S.data.duration*.2,S.data.duration*.4);S.selection=null;updateSelection()});
+await page.mouse.move(px(.65),py);await page.mouse.down();await page.mouse.move(px(.75),py,{steps:8});await page.mouse.up();
+assert.equal(await page.evaluate(()=>S.selection),null);assert((await page.evaluate(()=>S.view[0]))>panAfter.total*.4);
+// At full extent dragging must not silently fall back to selecting a range.
+await page.locator('#fitBtn').click();await page.mouse.move(px(.2),py);await page.mouse.down();await page.mouse.move(px(.4),py,{steps:8});await page.mouse.up();
+assert.equal(await page.evaluate(()=>S.selection),null);
+// Main charts still support selecting a range.
+await page.mouse.move(box.x+box.width*.3,box.y+12);await page.mouse.down();await page.mouse.move(box.x+box.width*.5,box.y+12,{steps:8});await page.mouse.up();assert.notEqual(await page.evaluate(()=>S.selection),null);
+assert.equal(await page.locator('[data-chart-select] option').first().evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(19, 25, 31)');
+await page.locator('#clearSelection').click();
+await page.locator('#aboutBtn').click();assert((await page.locator('#aboutDialog').innerText()).includes('Shift + колесо'));await page.locator('#closeAbout').click();
+await page.locator('[data-view="table"]').click();await page.locator('#nextPage').click();assert.equal(await page.locator('#pageLabel').innerText(),'2 / 31');
+await page.locator('[data-view="graphs"]').click();await page.keyboard.press('End');assert.equal(await page.locator('#frameIndex').innerText(),'2466 / 2466');
+await page.locator('#csvBtn').click();await page.locator('#confirmExport').click();assert.equal(exported[0].end,2465);
+await page.locator('#fitBtn').click();await page.keyboard.press('Home');await page.screenshot({path:'test-output/mixed-updated.png'});
+while(await page.locator('[data-remove-kpi]').count())await page.locator('[data-remove-kpi]').first().click();
+assert(await page.locator('#addKpi').isVisible());await page.locator('#addKpi').click();await page.locator('#kpiParameter').selectOption('p004');await page.locator('#confirmKpi').click();
+await page.setViewportSize({width:1100,height:640});await page.screenshot({path:'test-output/mixed-small.png'});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth===innerWidth));assert.deepEqual(errors,[]);
+console.log('PASS: 2466 frames; compact header; add/remove/reorder cards; Shift-wheel; table; full export; small viewport; no JS errors.');await browser.close();
+})().catch(e=>{console.error(e);process.exit(1)});

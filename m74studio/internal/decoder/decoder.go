@@ -73,6 +73,7 @@ func (p Parameter) Decode(payload []byte) *float64 {
 }
 
 type Frame struct {
+	Request   string     `json:"request"`
 	Index     int        `json:"index"`
 	Line      int        `json:"line"`
 	Time      string     `json:"time"`
@@ -183,7 +184,7 @@ func Parse(r io.Reader, name string) (*Session, error) {
 			return nil
 		}
 		raw := strings.Join(responses, " ")
-		if request != "220001" {
+		if request != "220001" && request != "220002" {
 			s.Quality.Ignored++
 			if strings.HasPrefix(request, "2200") && len(request) == 6 {
 				b, e := parseHex(raw)
@@ -218,47 +219,66 @@ func Parse(r io.Reader, name string) (*Session, error) {
 			origin = absolute
 		}
 		rel := float64(absolute-origin) / 1000
-		f := Frame{Index: len(s.Frames), Line: requestLine, Time: strings.ReplaceAll(stamp, ",", "."), T: rel, Raw: raw, Quality: "complete", Values: make([]*float64, len(s.Parameters))}
+		f := Frame{Request: request, Index: len(s.Frames), Line: requestLine, Time: strings.ReplaceAll(stamp, ",", "."), T: rel, Raw: raw, Quality: "complete", Values: make([]*float64, len(s.Parameters))}
 		if s.Date != "" {
 			d, _ := time.Parse("2006-01-02", s.Date)
 			f.Timestamp = d.AddDate(0, 0, int(day)).Format("2006-01-02") + "T" + f.Time
 		}
 		msg := ""
+		header := []byte{0x62, 0, 1}
+		minimum, maximum := 59, 60
+		if request == "220002" {
+			header[2] = 2
+			minimum, maximum = 52, 52
+		}
+		headerText := fmt.Sprintf("62 00 %02X ", header[2])
 		b, e := parseHex(raw)
-		if e != nil || len(b) < 3 || !bytes.Equal(b[:3], []byte{0x62, 0, 1}) {
+		if e != nil || len(b) < 3 || !bytes.Equal(b[:3], header) {
 			// Recover only an unambiguous complete response after a damaged adapter prefix.
-			pos := strings.Index(strings.ToUpper(raw), "62 00 01 ")
-			if pos > 0 && strings.Count(strings.ToUpper(raw), "62 00 01 ") == 1 {
+			pos := strings.Index(strings.ToUpper(raw), headerText)
+			if pos > 0 && strings.Count(strings.ToUpper(raw), headerText) == 1 {
 				candidate, err := parseHex(raw[pos:])
-				if err == nil && (len(candidate) == 62 || len(candidate) == 63) {
+				if err == nil && len(candidate) >= minimum+3 && len(candidate) <= maximum+3 {
 					b = candidate
 					e = nil
 					f.Quality = "recovered"
-					msg = "Удалён повреждённый префикс адаптера перед полным ответом 62 00 01"
+					msg = "Удалён повреждённый префикс адаптера перед полным ответом " + strings.TrimSpace(headerText)
 				}
 			}
 		}
-		if e != nil || len(b) < 3 || !bytes.Equal(b[:3], []byte{0x62, 0, 1}) || len(b) > 63 {
+		if e != nil || len(b) < 3 || !bytes.Equal(b[:3], header) || len(b) > maximum+3 {
 			f.Quality = "invalid"
 			s.Quality.Invalid++
-			msg = "Невалидный или отсутствующий ответ на 220001; значения не восстановлены"
+			msg = "Невалидный или отсутствующий ответ на " + request + "; значения не восстановлены"
 		} else {
 			payload := b[3:]
-			if len(payload) < 59 {
+			if len(payload) < minimum {
 				f.Quality = "partial"
 				s.Quality.Partial++
-				msg = fmt.Sprintf("Неполный ответ: %d из 59 обязательных байтов; недостающие значения пустые", len(payload))
+				msg = fmt.Sprintf("Неполный ответ %s: %d из %d обязательных байтов; недостающие значения пустые", request, len(payload), minimum)
 			} else if f.Quality == "recovered" {
 				s.Quality.Recovered++
 			} else {
 				s.Quality.Complete++
 			}
 			for i, p := range s.Parameters {
+				// Packet 0002 shares the first 16 payload bytes with 0001.
+				// Its remaining fields have a different layout; never decode them as 0001.
+				if request == "220002" && p.Byte+p.Width > 16 {
+					continue
+				}
 				f.Values[i] = p.Decode(payload)
 			}
 		}
 		if msg != "" {
 			s.Events = append(s.Events, Event{f.Index, f.Time, f.T, "quality", msg})
+		}
+		if len(s.Frames) == 0 || s.Frames[len(s.Frames)-1].Request != request {
+			message := "Пакет параметров " + request
+			if request == "220002" {
+				message += ": декодируются общие параметры; специфические поля сохранены в HEX"
+			}
+			s.Events = append(s.Events, Event{f.Index, f.Time, f.T, "state", message})
 		}
 		if lastAbsolute >= 0 && absolute-lastAbsolute > 2000 {
 			s.Events = append(s.Events, Event{f.Index, f.Time, f.T, "gap", fmt.Sprintf("Пауза между запросами %.3f с", float64(absolute-lastAbsolute)/1000)})
@@ -318,7 +338,7 @@ func Parse(r io.Reader, name string) (*Session, error) {
 		return nil, fmt.Errorf("в заголовке не найден Ителма М74CAN; другие профили пока не поддерживаются")
 	}
 	if len(s.Frames) == 0 {
-		return nil, fmt.Errorf("нет запросов основных параметров М74CAN (220001)")
+		return nil, fmt.Errorf("нет запросов параметров М74CAN (220001 / 220002)")
 	}
 	if s.Quality.Complete+s.Quality.Partial+s.Quality.Recovered == 0 {
 		return nil, fmt.Errorf("нет декодируемых ответов М74CAN")
@@ -328,7 +348,7 @@ func Parse(r io.Reader, name string) (*Session, error) {
 	if len(s.Frames) > 1 {
 		s.MedianInterval = medianInterval(s.Frames)
 	}
-	s.Note = "Профиль Ителма М74CAN, основной пакет параметров. Пустое значение означает отсутствие данных. Коды DTC в этой версии не расшифровываются; количество ошибок не раскрывает их причины."
+	s.Note = "Профиль Ителма М74CAN. Пакет 220001: основной набор; 220002: общие параметры первых 16 байтов, специфические поля не расшифрованы. Пустое значение означает отсутствие данных. Коды DTC в этой версии не расшифровываются; количество ошибок не раскрывает их причины."
 	s.addTransitions()
 	return s, nil
 }

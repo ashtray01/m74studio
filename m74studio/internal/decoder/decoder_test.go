@@ -11,6 +11,69 @@ import (
 
 const packet = "62 00 01 04 77 00 4D 00 00 00 00 00 00 01 1E 00 00 10 AA 00 00 7E FF 36 FF 80 00 3F DD FF 93 A3 00 77 00 00 4B 00 00 00 00 00 7F 05 8F 00 00 00 00 00 00 4D 00 23 00 01 80 1A DB 29 EC 01"
 
+const packet2 = "62 00 02 01 8E 00 4A 12 54 00 1D 05 18 01 20 00 00 04 BE 80 80 00 00 80 80 00 00 80 80 00 00 80 80 00 00 00 00 00 00 00 03 00 0A 00 F7 80 01 00 00 00 00 00 00 00 00"
+
+func TestSecondPacketAndMissingResponses(t *testing.T) {
+	log := fixture("18:03:57,980", packet) + "Time: 18:03:58,412\nSend: 220002\nReceive: " + packet2 +
+		"\nTime: 18:03:59\nSend: 220002\nReceive: NO READ DATA\nTime: 18:04:00\nSend: 220002"
+	s, err := Parse(strings.NewReader(log), "2026-10-03.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Frames) != 4 || s.Quality.Complete != 2 || s.Quality.Invalid != 2 {
+		t.Fatalf("frames=%d quality=%+v", len(s.Frames), s.Quality)
+	}
+	want := map[string]float64{"p001": 1, "p002": 14.2, "p003": 7.5, "p004": 1173, "p008": 7.031}
+	for j, p := range s.Parameters {
+		v := s.Frames[1].Values[j]
+		if expected, ok := want[p.ID]; ok && (v == nil || *v != expected) {
+			t.Errorf("%s: %v, want %v", p.ID, v, expected)
+		}
+		if p.Byte+p.Width > 16 && v != nil {
+			t.Errorf("packet 0002 decoded with wrong layout: %s", p.ID)
+		}
+		if s.Frames[2].Values[j] != nil || s.Frames[3].Values[j] != nil {
+			t.Fatal("missing response fabricated")
+		}
+	}
+	for _, raw := range []string{packet, packet2 + " FF", "62 00 02 01 8E"} {
+		input := strings.Replace(fixture("18:04:00", raw), "Send: 220001", "Send: 220002", 1)
+		s, err := Parse(strings.NewReader(fixture("18:03:59", packet)+input), "test.log")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if raw == "62 00 02 01 8E" {
+			if s.Quality.Partial != 1 || s.Frames[1].Values[2] != nil {
+				t.Fatal("bad partial packet")
+			}
+		} else if s.Quality.Invalid != 1 {
+			t.Fatal("mismatched or oversized response accepted")
+		}
+	}
+}
+
+func TestMixedRecording(t *testing.T) {
+	f, err := os.Open("../../../temp/appLog-2026-10-03-18-02-41.log")
+	if os.IsNotExist(err) {
+		t.Skip("local recording absent")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	s, err := Parse(f, f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Frames) != 2466 || s.Frames[222].Request != "220002" || s.Frames[2465].Time != "18:23:17.811" {
+		t.Fatalf("recording truncated: %d frames", len(s.Frames))
+	}
+	if s.Frames[2465].Quality != "invalid" {
+		t.Fatal("missing final response not preserved")
+	}
+	t.Logf("%d frames, %.3f seconds, quality %+v", len(s.Frames), s.Duration, s.Quality)
+}
+
 func fixture(time, raw string) string {
 	return fmt.Sprintf("ВАЗ: Ителма M74CAN\nTime: %s\nSend: 220001\nReceive: %s\n", time, raw)
 }
