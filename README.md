@@ -53,7 +53,7 @@ M74 Studio читает записи OpenDiag Mobile для **Ителма М74C
 2. Распакуйте ZIP и запустите **M74Studio.exe**.
 3. Нажмите **Открыть лог** или перетащите `.log` в окно.
 
-Нужны Windows 10/11 x64 и [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/). Установка Go или Node.js для запуска не требуется.
+Нужны Windows 10/11 x64 и [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) В 10 и 11 виндовс этот райнтайм уже установлен по умолчанию. Установка Go или Node.js для запуска не требуется.
 
 | Действие | Управление |
 | :--- | :--- |
