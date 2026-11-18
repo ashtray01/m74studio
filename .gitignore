@@ -15,6 +15,7 @@
 node_modules/
 
 # Personal recordings, generated reports and build products.
+/temp/
 *.log
 *.csv
 *.exe

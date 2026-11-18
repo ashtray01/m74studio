@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -96,6 +97,34 @@ func TestReferenceValues(t *testing.T) {
 		}
 	}
 }
+
+func TestPaddedParameterResponse(t *testing.T) {
+	// Use AA as the optional payload byte to check that it survives normalization.
+	full := packet + " AA"
+	padded := full + " AA AA AA AA AA AA"
+	log := fixture("08:26:51,391", full) +
+		fixture("08:26:51,688", padded) +
+		fixture("08:26:51,980", "0 03E "+padded) +
+		fixture("08:26:52,254", padded+" AA") +
+		fixture("08:26:52,511", full+" AA AA 00 AA AA AA")
+
+	s, err := Parse(strings.NewReader(log), "test.log")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Frames) != 5 || s.Quality.Complete != 2 || s.Quality.Recovered != 1 || s.Quality.Invalid != 2 {
+		t.Fatalf("frames=%d quality=%+v", len(s.Frames), s.Quality)
+	}
+	for _, f := range s.Frames[1:3] {
+		if !reflect.DeepEqual(f.Values, s.Frames[0].Values) {
+			t.Fatalf("frame %d decoded differently after padding", f.Index)
+		}
+	}
+	if s.Frames[1].Raw != padded {
+		t.Fatal("raw response lost its padding")
+	}
+}
+
 func TestDamagedRecordsAndMidnight(t *testing.T) {
 	log := fixture("23:59:59,900", packet) + "Fixed toLineMF: 022 " + packet + "\nTime: 00:00:00,150\nSend: 220001\nReceive: 62 00 01 04 77 00\nTime: 00:00:00,400\nSend: 220001\nReceive: garbage\nTime: 00:00:00,650\nSend: 220001\nReceive: 1 21 88 03E " + packet
 	s, e := Parse(strings.NewReader(log), "2026-10-01.log")

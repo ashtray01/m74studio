@@ -148,6 +148,21 @@ func parseHex(s string) ([]byte, error) {
 	}
 	return hex.DecodeString(strings.Join(parts, ""))
 }
+
+const packet1MaxPayload = 60
+
+func parseParameterResponse(raw string, header []byte) ([]byte, error) {
+	b, err := parseHex(raw)
+	fullSize := len(header) + packet1MaxPayload
+	padding := []byte{0xaa, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa}
+	// Some recordings include this padding after a full 220001 response.
+	if err == nil && header[2] == 1 && len(b) == fullSize+len(padding) &&
+		bytes.HasPrefix(b, header) && bytes.HasSuffix(b, padding) {
+		b = b[:fullSize]
+	}
+	return b, err
+}
+
 func ident(b []byte) string {
 	b = bytes.TrimRight(b, "\x00\xaa\xff ")
 	for _, c := range b {
@@ -226,18 +241,18 @@ func Parse(r io.Reader, name string) (*Session, error) {
 		}
 		msg := ""
 		header := []byte{0x62, 0, 1}
-		minimum, maximum := 59, 60
+		minimum, maximum := 59, packet1MaxPayload
 		if request == "220002" {
 			header[2] = 2
 			minimum, maximum = 52, 52
 		}
 		headerText := fmt.Sprintf("62 00 %02X ", header[2])
-		b, e := parseHex(raw)
+		b, e := parseParameterResponse(raw, header)
 		if e != nil || len(b) < 3 || !bytes.Equal(b[:3], header) {
 			// Recover only an unambiguous complete response after a damaged adapter prefix.
 			pos := strings.Index(strings.ToUpper(raw), headerText)
 			if pos > 0 && strings.Count(strings.ToUpper(raw), headerText) == 1 {
-				candidate, err := parseHex(raw[pos:])
+				candidate, err := parseParameterResponse(raw[pos:], header)
 				if err == nil && len(candidate) >= minimum+3 && len(candidate) <= maximum+3 {
 					b = candidate
 					e = nil
